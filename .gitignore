@@ -1,0 +1,5 @@
+*.o
+*.so
+cannyEdgeDetectorNPP/cannyEdgeDetectorNPP
+venv
+out
