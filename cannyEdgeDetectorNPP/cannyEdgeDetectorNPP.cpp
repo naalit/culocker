@@ -172,6 +172,7 @@ int main(int argc, char *argv[]) {
 
     auto c_start = std::chrono::steady_clock::now();
 
+
     // declare a host image object for an 8-bit grayscale image
     npp::ImageCPU_8u_C1 oHostSrc;
     // load gray-scale image from disk
@@ -179,6 +180,8 @@ int main(int argc, char *argv[]) {
 
     auto start = second();
 
+    for (int o = 0; o < 3; o++) {
+    
     // declare a device image and copy construct from the host image,
     // i.e. upload host to device
     npp::ImageNPP_8u_C1 oDeviceSrc(oHostSrc);
@@ -237,6 +240,8 @@ int main(int argc, char *argv[]) {
     // Theoretically, these should get freed by the destructors
     //nppiFree(oDeviceSrc.data());
     //nppiFree(oDeviceDst.data());    
+
+    }
 
     auto end = second();
     if (iter > 200) {

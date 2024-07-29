@@ -2,7 +2,7 @@ use task.nu
 
 print "running..."
 
-$env.R_SUFFIX = '_T2_L2'
+$env.R_SUFFIX = '_T3_L2'
 
 echo "frame,time,window_size\n" | save -f $'out/cu_log($env.R_SUFFIX).csv'
 echo "time,window_size\n" | save -f $'out/cu_log_task($env.R_SUFFIX).csv'
@@ -25,18 +25,20 @@ def run-task [] {
     }
 }
 
-for j in 1..15 {
+for j in 1..10 {
     print 'running control task'
 
-    # Uses 3 as the marker for "control" (not running concurrently with pytorch)
-    $env.CUDA_OVERRIDE_MAX_SYNC_MS = 3
+    # Uses 2.5 as the marker for "control" (not running concurrently with pytorch)
+    $env.CUDA_OVERRIDE_MAX_SYNC_MS = 2.5
     let id = run-task
     sleep 15sec
     task kill $id
     task wait $id
     task remove $id
 
-    for i in [0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.4, 0.5, 0.8, 1.0, 2.0] { #[1,3,5,8,10,15,20,30,50,100,200,300,500,700,1000]
+    for i in [0.001, 0.01, 0.05, 0.2, 0.8, 1.0, 3.0, 4.0, 5.0, 7.0] {
+            #[0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.4, 0.5, 0.8, 1.0, 2.0]
+            #[1,3,5,8,10,15,20,30,50,100,200,300,500,700,1000]
         print $'running window size ($i)'
 
         # $env.CUDA_OVERRIDE_KERNEL_N_SYNC = $i
@@ -44,6 +46,12 @@ for j in 1..15 {
 
         let id = run-task
         print $'id: ($id)'
+
+        # 3,4,5,7 are actually KERNEL_N_SYNC 1,8,27,125
+        if $i > 2.0 {
+            $env.CUDA_OVERRIDE_MAX_SYNC_MS = 0
+            $env.CUDA_OVERRIDE_KERNEL_N_SYNC = ($i - 2) ** 3
+        }
 
         LD_PRELOAD="./cuda_override.so /usr/lib/libstdc++.so" venv/bin/python cutest.py
                 | from csv -n
