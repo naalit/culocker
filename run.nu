@@ -7,13 +7,11 @@ $env.R_SUFFIX = '_T3_L2'
 echo "frame,time,window_size\n" | save -f $'out/cu_log($env.R_SUFFIX).csv'
 echo "time,window_size\n" | save -f $'out/cu_log_task($env.R_SUFFIX).csv'
 
-let start = date now
-
 def run-task [] {
     task spawn {
         let num = $env.CUDA_OVERRIDE_MAX_SYNC_MS
         $env.CUDA_OVERRIDE_MAX_SYNC_MS = 2
-        $env.CUDA_OVERRIDE_SYNC_LOCK_SKIPS = 1
+        $env.CUDA_OVERRIDE_SYNC_LOCK_SKIPS = 1 # skip unlocking on the streamsynchronize inside of the task; this simulates a high-priority task which will not be preempted
         cd cannyEdgeDetectorNPP
         # print $'here: ($env.PWD) with ($env.CUDA_OVERRIDE_KERNEL_N_SYNC)'
         LD_PRELOAD="../cuda_override.so" ./cannyEdgeDetectorNPP
@@ -25,7 +23,7 @@ def run-task [] {
     }
 }
 
-for j in 1..10 {
+for j in 1..15 {
     print 'running control task'
 
     # Uses 2.5 as the marker for "control" (not running concurrently with pytorch)
@@ -36,9 +34,7 @@ for j in 1..10 {
     task wait $id
     task remove $id
 
-    for i in [0.001, 0.01, 0.05, 0.2, 0.8, 1.0, 3.0, 4.0, 5.0, 7.0] {
-            #[0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.4, 0.5, 0.8, 1.0, 2.0]
-            #[1,3,5,8,10,15,20,30,50,100,200,300,500,700,1000]
+    for i in [0.001, 0.01, 0.05, 0.2, 0.8, 1.0] {
         print $'running window size ($i)'
 
         # $env.CUDA_OVERRIDE_KERNEL_N_SYNC = $i
@@ -48,10 +44,10 @@ for j in 1..10 {
         print $'id: ($id)'
 
         # 3,4,5,7 are actually KERNEL_N_SYNC 1,8,27,125
-        if $i > 2.0 {
-            $env.CUDA_OVERRIDE_MAX_SYNC_MS = 0
-            $env.CUDA_OVERRIDE_KERNEL_N_SYNC = ($i - 2) ** 3
-        }
+        # if $i > 2.0 {
+        #     $env.CUDA_OVERRIDE_MAX_SYNC_MS = 0
+        #     $env.CUDA_OVERRIDE_KERNEL_N_SYNC = ($i - 2) ** 3
+        # }
 
         LD_PRELOAD="./cuda_override.so /usr/lib/libstdc++.so" venv/bin/python cutest.py
                 | from csv -n
@@ -70,9 +66,3 @@ for j in 1..10 {
 }
 
 venv/bin/python plot2.py
-
-# looking like 100 is about the place to be?
-# but this data is super noisy
-# could i do 10 runs and then get a median at each frame?
-# would i do that here in the nu or in the python? pry python? idk how to do that ig but i can try
-# wait box plots have median already... but might be nice to have per-frame median too idk?
