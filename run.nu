@@ -2,7 +2,7 @@ use task.nu
 
 print "running..."
 
-$env.R_SUFFIX = '_T3_L2'
+$env.R_SUFFIX = '_T3_L4'
 
 echo "frame,time,window_size\n" | save -f $'out/cu_log($env.R_SUFFIX).csv'
 echo "time,window_size\n" | save -f $'out/cu_log_task($env.R_SUFFIX).csv'
@@ -14,7 +14,8 @@ def run-task [] {
         $env.CUDA_OVERRIDE_SYNC_LOCK_SKIPS = 1 # skip unlocking on the streamsynchronize inside of the task; this simulates a high-priority task which will not be preempted
         cd cannyEdgeDetectorNPP
         # print $'here: ($env.PWD) with ($env.CUDA_OVERRIDE_KERNEL_N_SYNC)'
-        LD_PRELOAD="../cuda_override.so" ./cannyEdgeDetectorNPP
+        let lib = if $num == 3 { '' } else { '../cuda_override.so' }
+        LD_PRELOAD=$lib ./cannyEdgeDetectorNPP
             | lines
             | filter { |x| ($x | str length) > 0 }
             | filter { |x| not ($x | str contains 'Ampere') }
@@ -24,12 +25,29 @@ def run-task [] {
 }
 
 for j in 1..15 {
-    print 'running control task'
+    print $"-- running control task \(($j + 1)/15\) --"
 
-    # Uses 2.5 as the marker for "control" (not running concurrently with pytorch)
-    $env.CUDA_OVERRIDE_MAX_SYNC_MS = 2.5
+    # Uses 2 as the marker for "control" (not running concurrently with pytorch)
+    $env.CUDA_OVERRIDE_MAX_SYNC_MS = 2
     let id = run-task
     sleep 15sec
+    task kill $id
+    task wait $id
+    task remove $id
+
+    # there's also another type of control which is where both are running but the locking code is not inserted
+    # that can be 3
+    print 'running control task 2'
+    $env.CUDA_OVERRIDE_MAX_SYNC_MS = 3
+    let id = run-task
+    venv/bin/python cutest.py
+            | from csv -n
+            | rename frame time
+            | filter { |x| $x.frame != 0 }
+            | insert window_size 3
+            | if $j mod 2 == 0 { reverse } else { echo $in }
+            | to csv -n
+            | save --append $'out/cu_log($env.R_SUFFIX).csv'
     task kill $id
     task wait $id
     task remove $id
