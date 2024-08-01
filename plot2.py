@@ -50,7 +50,7 @@ plt.show()
 # CDF plot
 tasks = ['short', 'long']
 window_sizes = sorted(df['window_size'].unique())
-colors = plt.cm.rainbow(np.linspace(0, 1, len(window_sizes)))
+colors = plt.cm.plasma(np.linspace(0, 1, len(window_sizes)))
 
 fig, axs = plt.subplots(len(tasks), 1, figsize=(12, 4*len(tasks)))
 fig.suptitle('Cumulative Distribution Function of Time by Task and Window Size')
@@ -69,11 +69,12 @@ for i, task in enumerate(tasks):
     axs[i].legend()
 
 axs[0].set_xlabel('Time (ms)')
+axs[0].set_xlim(0, 10) # we don't super care about the very small number of outliers at the top
+axs[0].set_xticks(list(range(11))) # and make sure there are ticks at each millisecond
 axs[1].set_xlabel('Time (s)')
-#axs[1].tick_params(axis='x', bottom=True, labelbottom=True)
-axs[1].xaxis.set_major_formatter(lambda x, pos: str(x / 10))
-#axs[0].xaxis.set_major_formatter(lambda x, pos: str(x))
-# plt.xlabel('Time (ms)')
+axs[1].set_xlim(0) # make sure they both start at 0
+axs[1].xaxis.set_major_formatter(lambda x, pos: str(x / 10)) # the times in the dataframe are in ds, so convert to s for easier reading
+
 fig.text(0.01, 0.5, 'Cumulative Probability', va='center', rotation='vertical')
 plt.tight_layout()
 plt.show()
