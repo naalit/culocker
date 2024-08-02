@@ -2,7 +2,7 @@ use task.nu
 
 print "running..."
 
-$env.R_SUFFIX = '_T3_L4'
+$env.R_SUFFIX = '_T3_L5'
 
 echo "frame,time,window_size\n" | save -f $'out/cu_log($env.R_SUFFIX).csv'
 echo "time,window_size\n" | save -f $'out/cu_log_task($env.R_SUFFIX).csv'
@@ -25,7 +25,7 @@ def run-task [] {
 }
 
 for j in 1..15 {
-    print $"-- running control task \(($j + 1)/15\) --"
+    print $"-- running control task \(($j)/15\) --"
 
     # Uses 2 as the marker for "control" (not running concurrently with pytorch)
     $env.CUDA_OVERRIDE_MAX_SYNC_MS = 2
@@ -52,7 +52,10 @@ for j in 1..15 {
     task wait $id
     task remove $id
 
-    for i in [0.001, 0.01, 0.05, 0.2, 0.8, 1.0] {
+    # i want to try with 11.5 and 12.5 (μs) or something - there's a jump in the kernel time CDF at 12 and another at 13.2-13.6 so check around there too. maybe just 11,12,14 μs?
+    # realistically this pry won't be very interesting, like, we don't actually have that fine-grained control over critical section length
+    # i also want to know what's going on between 0.05 and 0.2, there's a big jump there. ig not really that much, but enough to like care about
+    for i in [0.001, 0.010, 0.0125, 0.014, 0.05, 0.08, 0.1, 0.2] {
         print $'running window size ($i)'
 
         # $env.CUDA_OVERRIDE_KERNEL_N_SYNC = $i

@@ -5,7 +5,7 @@ import numpy as np
 
 
 # Build combined dataframe for both tasks
-suffix = '_T3_L4'
+suffix = '_T3_L5'
 df_long = pd.read_csv(f"out/cu_log{suffix}.csv")
 df_short = pd.read_csv(f"out/cu_log_task{suffix}.csv")
 df_long['task'] = 'long'
@@ -14,6 +14,7 @@ df_long['time'] = df_long['time'].map(lambda x: x * 10) # make the scales more c
 df = pd.concat([df_short, df_long])
 
 s_labels = { 2: 'Control A (no concurrent long task)', 2.5: 'Control A (no concurrent long task)', 3: 'Control B (both tasks, no locking)' }
+s_labels2 = { 2: 'Control A\n(no concurrent long task)', 2.5: 'Control A\n(no concurrent long task)', 3: 'Control B\n(both tasks, no locking)' }
 
 # Box plot
 plt.figure(figsize=(12, 6))
@@ -40,8 +41,13 @@ ax_r.set_ylabel('Time for Long (s)')
 
 lo, hi = ax_l.get_ylim()
 ax_r.set_ylim(lo/10, hi/10)
-# The below doesn't work, TODO put in x-axis labels for the controls
-#ax_l.xaxis.set_major_formatter(lambda window_size, pos: s_labels[window_size] if window_size in s_labels else str(window_size))
+
+# This gives a warning, but it does work to label the controls 
+labels = []
+for tick in ax_l.xaxis.get_major_ticks():
+    val = float(tick.label1.get_text())
+    labels.append(s_labels2[val] if val in s_labels2 else tick.label1.get_text())
+ax_l.set_xticklabels(labels)
 
 plt.xlabel('Window Size')
 plt.show()
@@ -90,3 +96,4 @@ print('99%:\n', df_long.groupby('window_size')['time'].apply(lambda x: x.quantil
 print('99.5%:\n', df_long.groupby('window_size')['time'].apply(lambda x: x.quantile(0.995)), sep='')
 
 print('\nshort percent above 5ms:', df_short.groupby('window_size')['time'].apply(lambda x: f'{len(x[x > 5])/len(x)*100 :.2f}%' ), sep='\n')
+print('\nshort percent above 6ms:', df_short.groupby('window_size')['time'].apply(lambda x: f'{len(x[x > 6])/len(x)*100 :.2f}%' ), sep='\n')
