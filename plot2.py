@@ -19,7 +19,7 @@ s_labels2 = { 2: 'Control A\n(no concurrent long task)', 2.5: 'Control A\n(no co
 # Box plot
 plt.figure(figsize=(12, 6))
 
-_, ax_l = plt.subplots()
+ax_l = plt.gca()
 ax_r = ax_l.twinx()
 plt.title('Time by Window Size and Task')
 
@@ -39,7 +39,10 @@ ax_r.tick_params(axis='y', colors=palette[1])
 ax_l.set_ylabel('Time for Short (ms)')
 ax_r.set_ylabel('Time for Long (s)')
 
-lo, hi = ax_l.get_ylim()
+lo = 0
+hi = df['time'].quantile(0.9995)
+#lo, hi = ax_l.get_ylim()
+ax_l.set_ylim(lo, hi)
 ax_r.set_ylim(lo/10, hi/10)
 
 # This gives a warning, but it does work to label the controls 
