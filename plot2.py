@@ -5,8 +5,31 @@ import matplotlib.pyplot as plt
 import numpy as np
 import sys
 
-plot = sys.argv[1] if len(sys.argv) > 1 else 'cdf'
-dataset = sys.argv[2] if len(sys.argv) > 2 else 'all'
+# Configuration (via CLI params!)
+args = {}
+pending = None
+for i in sys.argv[1:]:
+    if pending is not None:
+        args[pending] = i
+        pending = None
+    elif i.startswith('--'):
+        pending = i[2:]
+    elif 'plot' not in args:
+        args['plot'] = i
+    elif 'data' not in args:
+        args['data'] = i
+    else:
+        print(f"Error: unknown argument '{i}'")
+print('Config:', args)
+def cbool(s): # bool('False') returns True 😔
+    return s in [True, 'True', 'true', '1', 1]
+
+plot = args.get('plot', 'cdf')
+dataset = args.get('data', 'all')
+fontsize = int(args.get('fontsize', 20))
+legend_at_top = cbool(args.get('legend-at-top', True))
+selected_tasks = args.get('tasks', 'short' if dataset == 'control' else 'all') # short/1, long/2, all
+fill_screen = cbool(args.get('fill-screen', False))
 
 # Build combined dataframe for both tasks
 suffix = '_T3_L5'
@@ -19,8 +42,16 @@ df = pd.concat([df_short, df_long])
 
 s_labels_n = { 2: 'Control A\n(no concurrent long task)', 2.5: 'Control A\n(no concurrent long task)', 3: 'Control B\n(both tasks, no locking)' }
 
+plt.rcParams.update({'font.size': fontsize})
+
+match selected_tasks:
+    case 'short' | '1':
+        df = df_short
+    case 'long' | '2':
+        df = df_long
+    # default is 'all'
+
 if dataset == 'control':
-    df = df_short
     df = df[(df['window_size'] == 2) | (df['window_size'] == 3)]
     s_labels_n = { 2: 'Running alone', 3: 'Running alongside task 2' }
 
@@ -68,10 +99,12 @@ if plot == 'cdf':
     # use a perceptually uniform sequential color map (plasma) for the actual window sizes, and greens for the controls
     colors = np.concatenate([plt.cm.plasma(np.linspace(0, 1, len(window_sizes)-2)), np.flip(plt.cm.Greens(np.linspace(0, 1, 6)), 0)[1::2,:]], 0)
 
-    fig, axs = plt.subplots(len(tasks), 1, figsize=(12, 4*len(tasks)))
+    # if fill-screen then make it 1920x1080 for easy transferring to slides
+    kwargs = { 'figsize': (19.20, 10.80), 'dpi': 100.0 } if fill_screen else { 'figsize': (12, 4*len(tasks)) }
+    fig, axs = plt.subplots(len(tasks), 1, **kwargs)
     if len(tasks) == 1:
         axs = [axs] # this is dumb
-    fig.suptitle('Cumulative Distribution Function of Time by Task and Window Size')
+    fig.suptitle('Task Response Times')
 
     for i, task in enumerate(tasks):
         for window_size, color in zip(window_sizes, colors):
@@ -79,13 +112,18 @@ if plot == 'cdf':
             if len(task_data) > 0:
                 x = np.sort(task_data)
                 y = np.arange(1, len(x) + 1) / len(x)
-                label = s_labels[window_size] if window_size in s_labels else f'Window Size {window_size}ms'
+                label = s_labels[window_size] if window_size in s_labels else f'{window_size}ms'
                 axs[i].plot(x, y, color=color, label=label)
-        
-        axs[i].set_ylabel(f'Task {task}')
-        axs[i].grid(True)
-        axs[i].legend()
 
+        if len(tasks) > 1:
+            axs[i].set_ylabel(f'Task {task}')
+        axs[i].grid(True)
+
+    if legend_at_top:
+        axs[0].legend(bbox_to_anchor=(0, 1.02, 1, 0.2), loc="lower left",
+             mode="expand", borderaxespad=0, ncols=5, markerscale=0.05)
+    else:
+        axs[0].legend()
     axs[0].set_xlabel('Time (ms)')
     axs[0].set_xlim(0, 10) # we don't super care about the very small number of outliers at the top
     axs[0].set_xticks(list(range(11))) # and make sure there are ticks at each millisecond
