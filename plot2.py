@@ -40,7 +40,7 @@ df_short['task'] = 'short'
 df_long['time'] = df_long['time'].map(lambda x: x * 10) # make the scales more comparable. still not ideal since the scales are different (ms vs ds) but we'll figure something out
 df = pd.concat([df_short, df_long])
 
-s_labels_n = { 2: 'Control A\n(no concurrent long task)', 2.5: 'Control A\n(no concurrent long task)', 3: 'Control B\n(both tasks, no locking)' }
+s_labels_n = { 2: 'Control A\n(no concurrent long task)', 2.5: 'Control A\n(no concurrent long task)', 3: 'Control B\n(both tasks, no locking)', 4: 'Locking after every GPU call' }
 
 plt.rcParams.update({'font.size': fontsize})
 
@@ -54,6 +54,10 @@ match selected_tasks:
 if dataset == 'control':
     df = df[(df['window_size'] == 2) | (df['window_size'] == 3)]
     s_labels_n = { 2: 'Running alone', 3: 'Running alongside task 2' }
+elif dataset != 'all':
+    # hopefully dataset is a comma-separated list of window sizes
+    sizes = map(lambda x: float(x), dataset.split(','))
+    df = df[df['window_size'].apply(lambda x: x in sizes)]
 
 s_labels = { k: v.replace('\n', ' ') for k, v in s_labels_n.items() }
 

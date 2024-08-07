@@ -14,7 +14,7 @@ def run-task [] {
         $env.CUDA_OVERRIDE_SYNC_LOCK_SKIPS = 1 # skip unlocking on the streamsynchronize inside of the task; this simulates a high-priority task which will not be preempted
         cd cannyEdgeDetectorNPP
         # print $'here: ($env.PWD) with ($env.CUDA_OVERRIDE_KERNEL_N_SYNC)'
-        let lib = if $num == 3 { '' } else { '../cuda_override.so' }
+        let lib = if $num == 3 or $num == 2 { '' } else { '../cuda_override.so' }
         LD_PRELOAD=$lib ./cannyEdgeDetectorNPP
             | lines
             | filter { |x| ($x | str length) > 0 }
@@ -55,7 +55,7 @@ for j in 1..15 {
     # i want to try with 11.5 and 12.5 (μs) or something - there's a jump in the kernel time CDF at 12 and another at 13.2-13.6 so check around there too. maybe just 11,12,14 μs?
     # realistically this pry won't be very interesting, like, we don't actually have that fine-grained control over critical section length
     # i also want to know what's going on between 0.05 and 0.2, there's a big jump there. ig not really that much, but enough to like care about
-    for i in [0.001, 0.010, 0.0125, 0.014, 0.05, 0.08, 0.1, 0.2] {
+    for i in [0.001, 0.010, 0.0125, 0.014, 0.05, 0.08, 0.1, 0.2, 4] {
         print $'running window size ($i)'
 
         # $env.CUDA_OVERRIDE_KERNEL_N_SYNC = $i
@@ -69,6 +69,10 @@ for j in 1..15 {
         #     $env.CUDA_OVERRIDE_MAX_SYNC_MS = 0
         #     $env.CUDA_OVERRIDE_KERNEL_N_SYNC = ($i - 2) ** 3
         # }
+        if $i == 4 {
+        	$env.CUDA_OVERRIDE_MAX_SYNC_MS = 0
+        	$env.CUDA_OVERRIDE_KERNEL_N_SYNC = 1
+        }
 
         LD_PRELOAD="./cuda_override.so /usr/lib/libstdc++.so" venv/bin/python cutest.py
                 | from csv -n
