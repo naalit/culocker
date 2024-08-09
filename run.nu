@@ -2,7 +2,7 @@ use task.nu
 
 print "running..."
 
-$env.R_SUFFIX = '_T3_L5'
+$env.R_SUFFIX = '_T3_L7'
 
 echo "frame,time,window_size\n" | save -f $'out/cu_log($env.R_SUFFIX).csv'
 echo "time,window_size\n" | save -f $'out/cu_log_task($env.R_SUFFIX).csv'
@@ -71,7 +71,7 @@ for j in 1..15 {
         # }
         if $i == 4 {
         	$env.CUDA_OVERRIDE_MAX_SYNC_MS = 0
-        	$env.CUDA_OVERRIDE_KERNEL_N_SYNC = 1
+        	$env.CUDA_OVERRIDE_KERNEL_N_SYNC = 0
         }
 
         LD_PRELOAD="./cuda_override.so /usr/lib/libstdc++.so" venv/bin/python cutest.py

@@ -177,7 +177,7 @@ __attribute__((constructor)) void init() {
     max_sync_ms = 0;
     sync_n_lock = 0;
     const char *s = getenv("CUDA_OVERRIDE_KERNEL_N_SYNC");
-    if (s != NULL && atoi(s) != 0)
+    if (s != NULL && (strcmp(s, "0") == 0 || atoi(s) != 0)) // allow a zero value for KERNEL_N_SYNC (syncing every kernel launch)
         kernel_n_sync = atoi(s);
     s = getenv("CUDA_OVERRIDE_SYNC_LOCK_SKIPS");
     if (s != NULL && atoi(s) != 0)

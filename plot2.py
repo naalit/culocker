@@ -32,7 +32,7 @@ selected_tasks = args.get('tasks', 'short' if dataset == 'control' else 'all') #
 fill_screen = cbool(args.get('fill-screen', False))
 
 # Build combined dataframe for both tasks
-suffix = '_T3_L5'
+suffix = args.get('file-suffix', '_T3_L6')
 df_long = pd.read_csv(f"out/cu_log{suffix}.csv")
 df_short = pd.read_csv(f"out/cu_log_task{suffix}.csv")
 df_long['task'] = 'long'
@@ -40,7 +40,7 @@ df_short['task'] = 'short'
 df_long['time'] = df_long['time'].map(lambda x: x * 10) # make the scales more comparable. still not ideal since the scales are different (ms vs ds) but we'll figure something out
 df = pd.concat([df_short, df_long])
 
-s_labels_n = { 2: 'Control A\n(no concurrent long task)', 2.5: 'Control A\n(no concurrent long task)', 3: 'Control B\n(both tasks, no locking)', 4: 'Locking after every GPU call' }
+s_labels_n = { 2: 'Only task 1', 3: 'No locking', 4: 'Locking every GPU call' }
 
 plt.rcParams.update({'font.size': fontsize})
 
@@ -53,12 +53,17 @@ match selected_tasks:
 
 if dataset == 'control':
     df = df[(df['window_size'] == 2) | (df['window_size'] == 3)]
-    s_labels_n = { 2: 'Running alone', 3: 'Running alongside task 2' }
 elif dataset != 'all':
     # hopefully dataset is a comma-separated list of window sizes
-    sizes = map(lambda x: float(x), dataset.split(','))
-    df = df[df['window_size'].apply(lambda x: x in sizes)]
+    sizes = list(map(lambda x: float(x), dataset.split(',')))
+    print('using custom dataset', sizes)
+    df = df[df['window_size'].apply(lambda x: float(x) in sizes)]
+    print('window sizes:', df['window_size'].unique())
 
+if selected_tasks in [1, 'short']:
+    s_labels_n = { 2: 'Running alone', 3: 'Running alongside task 2',  4: 'Locking every GPU call' }
+if selected_tasks in [2, 'long']:
+    s_labels_n = { 2: 'Running alone', 3: 'Running alongside task 1',  4: 'Locking every GPU call' }
 s_labels = { k: v.replace('\n', ' ') for k, v in s_labels_n.items() }
 
 if plot == 'box':
@@ -101,7 +106,7 @@ if plot == 'cdf':
     tasks = df['task'].unique()
     window_sizes = sorted(df['window_size'].unique())
     # use a perceptually uniform sequential color map (plasma) for the actual window sizes, and greens for the controls
-    colors = np.concatenate([plt.cm.plasma(np.linspace(0, 1, len(window_sizes)-2)), np.flip(plt.cm.Greens(np.linspace(0, 1, 6)), 0)[1::2,:]], 0)
+    colors = np.concatenate([plt.cm.plasma(np.linspace(0, 1, max(len(window_sizes)-3, 0))), np.flip(plt.cm.Greens(np.linspace(0, 1, 6)), 0)[1:5:2,:], plt.cm.plasma(np.linspace(0, 1, 1))], 0)
 
     # if fill-screen then make it 1920x1080 for easy transferring to slides
     kwargs = { 'figsize': (19.20, 10.80), 'dpi': 100.0 } if fill_screen else { 'figsize': (12, 4*len(tasks)) }
@@ -125,7 +130,7 @@ if plot == 'cdf':
 
     if legend_at_top:
         axs[0].legend(bbox_to_anchor=(0, 1.02, 1, 0.2), loc="lower left",
-             mode="expand", borderaxespad=0, ncols=5, markerscale=0.05)
+             mode="expand", borderaxespad=0, ncols=4, markerscale=0.05)
     else:
         axs[0].legend()
     axs[0].set_xlabel('Time (ms)')
