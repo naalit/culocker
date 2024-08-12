@@ -167,6 +167,7 @@ static void* (*original_dlsym)(void *handle, const char *symbol) = NULL;
 uint32_t kernel_n_sync;
 uint32_t sync_n_lock;
 double max_sync_ms;
+bool always_lock = false;
 double next_sync_ms = 0;
 
 // Constructor function to initialize original function pointers
@@ -185,6 +186,9 @@ __attribute__((constructor)) void init() {
     s = getenv("CUDA_OVERRIDE_MAX_SYNC_MS");
     if (s != NULL && strtod(s, nullptr) != 0)
         max_sync_ms = strtod(s, nullptr);
+    s = getenv("CUDA_OVERRIDE_ALWAYS_LOCK");
+    if (s != NULL && strcmp(s, "0") != 0)
+        always_lock = true;
 }
 
 
@@ -232,7 +236,7 @@ static void _doSync() {
     _kernel_launches = 0;
 }
 static void _auxSync(CUstream hStream) {
-    if (max_sync_ms > 0 ? millisecond() > next_sync_ms : ++_kernel_launches > kernel_n_sync) {
+    if (always_lock || (max_sync_ms > 0 ? millisecond() > next_sync_ms : ++_kernel_launches > kernel_n_sync)) {
         if (max_sync_ms > 0)
             next_sync_ms = millisecond() + max_sync_ms;
         rangePush("auxSync");
@@ -241,23 +245,32 @@ static void _auxSync(CUstream hStream) {
         real_cuStreamSynchronize(hStream);
         rangePop();
         _doSync();
-        if (!holds_lock)
+        if (!always_lock && !holds_lock)
             lock();
     }
 }
 
-static void _doKLaunch(CUstream hStream) {
+static void _doKLaunchPre(CUstream hStream) {
     if (LOCK_KERNELS && !holds_lock) {
         lock();
     }
-    _auxSync(hStream);
+    if (!always_lock) {
+        _auxSync(hStream);
+    }
+}
+static void _doKLaunchPost(CUstream hStream) {
+    if (LOCK_KERNELS && always_lock && holds_lock) {
+        _auxSync(hStream);
+    }
 }
 
 // Called by memory ops AFTER the memory operation
-static void _doMemOpPost(bool is_async) {
+static void _doMemOpPost(bool is_async, CUstream hStream) {
     if (!is_async) {
         // this counts as a cuStreamSynchronize, so we can release locks - the GPU is empty
         _doSync();
+    } else if (LOCK_KERNELS && always_lock && holds_lock) {
+        _auxSync(hStream);
     }
 }
 // Called by memory ops BEFORE the memory operation
@@ -266,7 +279,7 @@ static void _doMemOpPre(bool is_async, CUstream hStream) {
         lock();
     }
     // for now, treat kernels and async memory operations the same way
-    if (is_async) {
+    if (is_async && !always_lock) {
         _auxSync(hStream);
     }
 }
@@ -284,8 +297,10 @@ CUresult CUDAAPI fake_cuLaunchKernel(CUfunction f,
                                 void **extra) {
     if constexpr (LOG_KERNELS)
         std::cout << "DRIVER-INJECT: KERNEL LAUNCH" << std::endl;
-    _doKLaunch(hStream);
-    return real_cuLaunchKernel(f, gridDimX, gridDimY, gridDimZ, blockDimX, blockDimY, blockDimZ, sharedMemBytes, hStream, kernelParams, extra);
+    _doKLaunchPre(hStream);
+    auto r = real_cuLaunchKernel(f, gridDimX, gridDimY, gridDimZ, blockDimX, blockDimY, blockDimZ, sharedMemBytes, hStream, kernelParams, extra);
+    _doKLaunchPost(hStream);
+    return r;
 }
 CUresult CUDAAPI fake_cuLaunchKernelEx(const CUlaunchConfig *config,
                                   CUfunction f,
@@ -293,8 +308,11 @@ CUresult CUDAAPI fake_cuLaunchKernelEx(const CUlaunchConfig *config,
                                   void **extra) {
     if constexpr (LOG_KERNELS)
         std::cout << "DRIVER-INJECT: KERNEL LAUNCH EX" << std::endl;
-    _doKLaunch(config->hStream);
-    return real_cuLaunchKernelEx(config, f, kernelParams, extra);
+    auto hStream = config->hStream; 
+    _doKLaunchPre(hStream);
+    auto r = real_cuLaunchKernelEx(config, f, kernelParams, extra);
+    _doKLaunchPost(hStream);
+    return r;
 }
 CUresult CUDAAPI fake_cuLaunchCooperativeKernel(CUfunction f,
                                 unsigned int gridDimX,
@@ -308,14 +326,18 @@ CUresult CUDAAPI fake_cuLaunchCooperativeKernel(CUfunction f,
                                 void **kernelParams) {
     if constexpr (LOG_KERNELS)
         std::cout << "DRIVER-INJECT: KERNEL LAUNCH COOP" << std::endl;
-    _doKLaunch(hStream);
-    return real_cuLaunchCooperativeKernel(f, gridDimX, gridDimY, gridDimZ, blockDimX, blockDimY, blockDimZ, sharedMemBytes, hStream, kernelParams);
+    _doKLaunchPre(hStream);
+    auto r = real_cuLaunchCooperativeKernel(f, gridDimX, gridDimY, gridDimZ, blockDimX, blockDimY, blockDimZ, sharedMemBytes, hStream, kernelParams);
+    _doKLaunchPost(hStream);
+    return r;
 }
 CUresult CUDAAPI fake_cuGraphLaunch(CUgraphExec hGraphExec, CUstream hStream) {
     if constexpr (LOG_KERNELS)
         std::cout << "DRIVER-INJECT: KERNEL LAUNCH GRAPH" << std::endl;
-    _doKLaunch(hStream);
-    return real_cuGraphLaunch(hGraphExec, hStream);
+    _doKLaunchPre(hStream);
+    auto r = real_cuGraphLaunch(hGraphExec, hStream);
+    _doKLaunchPost(hStream);
+    return r;
 }
 CUresult CUDAAPI fake_cuStreamSynchronize (CUstream hStream) {
     auto r = real_cuStreamSynchronize(hStream);

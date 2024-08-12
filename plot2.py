@@ -23,16 +23,29 @@ for i in sys.argv[1:]:
 print('Config:', args)
 def cbool(s): # bool('False') returns True 😔
     return s in [True, 'True', 'true', '1', 1]
+invalid = args.copy()
+def check(argname, default, options=None):
+    arg = default
+    if argname in args:
+        arg = invalid.pop(argname)
+    if options is not None:
+        if arg != default and arg not in options:
+            print(f"Warning: invalid value '{arg}' for argument '{argname}'; valid values are {options}")
+    return arg
 
-plot = args.get('plot', 'cdf')
-dataset = args.get('data', 'all')
-fontsize = int(args.get('fontsize', 20))
-legend_at_top = cbool(args.get('legend-at-top', True))
-selected_tasks = args.get('tasks', 'short' if dataset == 'control' else 'all') # short/1, long/2, all
-fill_screen = cbool(args.get('fill-screen', False))
+plot = check('plot', 'cdf', ['box', 'tables'])
+dataset = check('data', 'all')
+fontsize = int(check('fontsize', 20))
+legend = check('legend', 'top', ['middle', 'none'])
+selected_tasks = check('tasks', 'short' if dataset == 'control' else 'all', ['short', '1', 'long', '2', 'all'])
+fill_screen = check('fill-screen', False, ['true', 'false', 'half'])
+suffix = check('file-suffix', '_T3_L6')
+title = check('title', 'Task Response Times')
+
+for k, v in invalid.items():
+    print(f"Warning: invalid argument '{k}'")
 
 # Build combined dataframe for both tasks
-suffix = args.get('file-suffix', '_T3_L6')
 df_long = pd.read_csv(f"out/cu_log{suffix}.csv")
 df_short = pd.read_csv(f"out/cu_log_task{suffix}.csv")
 df_long['task'] = 'long'
@@ -60,10 +73,10 @@ elif dataset != 'all':
     df = df[df['window_size'].apply(lambda x: float(x) in sizes)]
     print('window sizes:', df['window_size'].unique())
 
-if selected_tasks in [1, 'short']:
-    s_labels_n = { 2: 'Running alone', 3: 'Running alongside task 2',  4: 'Locking every GPU call' }
-if selected_tasks in [2, 'long']:
-    s_labels_n = { 2: 'Running alone', 3: 'Running alongside task 1',  4: 'Locking every GPU call' }
+# if selected_tasks in ['1', 'short']:
+#     s_labels_n = { 2: 'Running alone', 3: 'Running alongside task 2',  4: 'Locking every GPU call' }
+# if selected_tasks in ['2', 'long']:
+#     s_labels_n = { 2: 'Running alone', 3: 'Running alongside task 1',  4: 'Locking every GPU call' }
 s_labels = { k: v.replace('\n', ' ') for k, v in s_labels_n.items() }
 
 if plot == 'box':
@@ -96,7 +109,7 @@ if plot == 'box':
     ax_r.set_ylim(lo/10, hi/10)
 
     # this really does seem like the best way to change specific tick labels on a categorical axis
-    ax_l.xaxis.get_major_formatter()._units = { (s_labels2[float(k)] if float(k) in s_labels_n else k): v for k, v in ax_l.xaxis.get_major_locator()._units.items() }
+    ax_l.xaxis.get_major_formatter()._units = { (s_labels_n[float(k)] if float(k) in s_labels_n else k): v for k, v in ax_l.xaxis.get_major_locator()._units.items() }
 
     plt.xlabel('Window Size')
     plt.show()
@@ -105,15 +118,21 @@ if plot == 'cdf':
     # CDF plot
     tasks = df['task'].unique()
     window_sizes = sorted(df['window_size'].unique())
+    n_controls = 1 if selected_tasks in ['long', '2'] else 2
     # use a perceptually uniform sequential color map (plasma) for the actual window sizes, and greens for the controls
-    colors = np.concatenate([plt.cm.plasma(np.linspace(0, 1, max(len(window_sizes)-3, 0))), np.flip(plt.cm.Greens(np.linspace(0, 1, 6)), 0)[1:5:2,:], plt.cm.plasma(np.linspace(0, 1, 1))], 0)
+    colors = np.concatenate([plt.cm.plasma(np.linspace(0, 1, max(len(window_sizes)-(n_controls+1), 0))), np.flip(plt.cm.Greens(np.linspace(0, 1, 6)), 0)[5 - 2*n_controls:5:2,:], plt.cm.spring(np.linspace(0, 1, 1))], 0)
 
     # if fill-screen then make it 1920x1080 for easy transferring to slides
-    kwargs = { 'figsize': (19.20, 10.80), 'dpi': 100.0 } if fill_screen else { 'figsize': (12, 4*len(tasks)) }
-    fig, axs = plt.subplots(len(tasks), 1, **kwargs)
+    if fill_screen == 'half':
+        kwargs = { 'figsize': (14.00, 10.80), 'dpi': 100.0 }
+    elif cbool(fill_screen):
+        kwargs = { 'figsize': (19.20, 10.80), 'dpi': 100.0 }
+    else:
+        kwargs = { 'figsize': (12, 4*len(tasks)) }
+    fig, axs = plt.subplots(1, len(tasks), **kwargs)
     if len(tasks) == 1:
         axs = [axs] # this is dumb
-    fig.suptitle('Task Response Times')
+    fig.suptitle(title)
 
     for i, task in enumerate(tasks):
         for window_size, color in zip(window_sizes, colors):
@@ -128,21 +147,25 @@ if plot == 'cdf':
             axs[i].set_ylabel(f'Task {task}')
         axs[i].grid(True)
 
-    if legend_at_top:
+    if legend == 'top':
         axs[0].legend(bbox_to_anchor=(0, 1.02, 1, 0.2), loc="lower left",
              mode="expand", borderaxespad=0, ncols=4, markerscale=0.05)
-    else:
+    elif legend != 'none':
         axs[0].legend()
-    axs[0].set_xlabel('Time (ms)')
-    axs[0].set_xlim(0, 10) # we don't super care about the very small number of outliers at the top
-    axs[0].set_xticks(list(range(11))) # and make sure there are ticks at each millisecond
+    units = { 'short': 'ms', 'long': 's' }
+    lim = { 'short': 10, 'long': 7 }
+    print(tasks, lim[tasks[0]])
+    axs[0].set_xlabel(f'Time ({units[tasks[0]]})')
+    axs[0].set_xlim(0, lim[tasks[0]]) # we don't super care about the very small number of outliers at the top
+    axs[0].set_xticks(list(range(lim[tasks[0]] + 1))) # and make sure there are ticks at each millisecond/second
     if len(axs) > 1:
-        axs[1].set_xlabel('Time (s)')
-        axs[1].set_xlim(0) # make sure they both start at 0
+        axs[i].set_xlabel(f'Time ({units[tasks[1]]})')
+        axs[1].set_xlim(0, lim[tasks[1]]) # make sure they both start at 0
         axs[1].xaxis.set_major_formatter(lambda x, pos: str(x / 10)) # the times in the dataframe are in ds, so convert to s for easier reading
 
     fig.text(0.01, 0.5, 'Cumulative Probability', va='center', rotation='vertical')
     plt.tight_layout()
+    plt.subplots_adjust(left=0.075)
     plt.show()
 
 if plot == 'tables':
