@@ -10,38 +10,11 @@
 #include <assert.h>
 #include <cstdlib>
 
-// compile: g++ -fPIC -DPIC -c cudart_override.cpp -I/opt/cuda/include -fno-use-cxa-atexit -std=c++20
-// link:    ld -shared -o cudart_override.so cudart_override.o -ldl
-// then just add to LD_PRELOAD and it should work!
-
-// NOTES:
-// DtH cudaMemcpyAsync seems to not actually be async (otherwise cudaMemcpyAsync is properly async though)
-// -> so actually it's only sync when pageable memory is used, it's async when pinned memory is used; and there's no way to detect pinned memory with no false negativesf that I've found.
-//   so we have to pessimistically assume it's async all the time 🫤
-//
-// It seems like with green contexts if we wanted to do SM partitioning per process we could make a green context with the specified SMs,
-//   then hook into cuCtxSetCurrent or whatever and replace the context with cuCtxFromGreenCtx on our green context
-// I'm curious to see if using green contexts like this actually allows two processes to execute not timesliced? pry not?
-// Could probably get gpu-microbench to test that, I'll try after lunch I think.
-// Damn nope even with the green ctx they seem to run timesliced. Not that I'm actually sure the green ctx stuff is like working.
-//
-// In other news, Linux POSIX semaphores seem to be FIFO, based on looking at the implementation
-// - it uses a spinlock for atomic access to a waitlist which is FIFO
-//   and when we unlock and the waitlist is nonempty, we *don't* increase the count (so nobody new can access) and we set an `up` flag on the list entry that we're waking up,
-//   so there's no way for things to end up out-of-order.
-//
-// oookay so the POSIX semaphores are implemented in glibc on top of futexes that aren't FIFO
-// BUT the sysv semaphores go directly to the the kernel and actually are FIFO
-// it's weird, the kernel semaphores in semaphore.c are apparently not available from userspace at all?
-// like idk maybe they're used to implement something else in the kernel
-// but sysv semaphores have their own implementation (still FIFO) and posix semaphores are in glibc on futexes. idk
-
 const bool LOG_KERNELS = false;
 const bool LOCK_KERNELS = true;
 const bool LOG_LOCKS = false;
 const bool LOG_MEMORY = false;
 const bool LOG_PROC_ADDR = false;
-const uint32_t KERNEL_N_SYNC = 10; // can be overriden by CUDA_OVERRIDE_KERNEL_N_SYNC environment variable
 uint32_t _kernel_launches = 0;
 uint32_t _sync_calls = 0;
 
@@ -62,7 +35,7 @@ void rangePop() {
 }
 
 // -- SysV semaphores -- //
-// much worse to use, but they have FIFO guarantees 🤷
+// much worse to use than POSIX semaphores, but they have FIFO guarantees 🤷
 // (well, the Linux implementation does; it doesn't seem like the SysV standard actually requires that)
 #include <sys/ipc.h>
 #include <sys/sem.h>
@@ -122,17 +95,14 @@ int sem_trywaitv(int semid) {
 }
 // -- end SysV semaphores
 
-// Semaphores!
 bool holds_lock = false;
-//sem_t *semaphore; // 1 if unlocked, 0 if locked
 int semaphore;
 void lock() {
     assert(!holds_lock);
     if (!semaphore) {
-        semaphore = create_semaphore();//sem_open("/cuda-override-sem", O_CREAT, S_IRWXU, 1);
+        semaphore = create_semaphore();
     }
     if (!sem_trywaitv(semaphore)) {
-        //std::cout << "waiting" << std::endl;
         rangePush("wait");
         sem_waitv(semaphore);
         rangePop();
@@ -162,8 +132,9 @@ static double millisecond(void) {
 }
 // -- --
 
-// Original function pointers
+// Original dlsym function pointer (we manage this separately from the CUDA symbols)
 static void* (*original_dlsym)(void *handle, const char *symbol) = NULL;
+
 uint32_t kernel_n_sync;
 uint32_t sync_n_lock;
 double max_sync_ms;
@@ -174,7 +145,7 @@ double next_sync_ms = 0;
 void init() {
     original_dlsym = (void* (*)(void*, const char*)) dlvsym(RTLD_NEXT, "dlsym", "GLIBC_2.34");
 
-    kernel_n_sync = KERNEL_N_SYNC;
+    kernel_n_sync = 10;
     max_sync_ms = 0;
     sync_n_lock = 0;
     const char *s = getenv("CUDA_OVERRIDE_KERNEL_N_SYNC");
@@ -360,6 +331,14 @@ std::unordered_map<std::string, std::pair<void*, void**>> MAP = {
     {"cuStreamSynchronize", {(void*) fake_cuStreamSynchronize, (void**)&real_cuStreamSynchronize}}
 };
 
+// Generally, if e.g. the CUDA runtime wants to call a CUDA symbol like cuLaunchKernel:
+// - First it calls dlsym() to get the address of cuGetProcAddress
+// - Then it calls cuGetProcAddress to get the address of cuGetProcAddress again (at least sometimes; this is probably to be compatible with more future CUDA versions)
+// - Then it calls that cuGetProcAddress to get the address of cuLaunchKernel
+// - Only then can it actually call cuLaunchKernel
+// But other libcuda users sometimes use dlsym() to get the address of cuLaunchKernel directly, without using cuGetProcAddress()
+// So we have to hook both dlsym() and cuGetProcAddress() to return our injected functions
+// As far as I can tell nothing actually directly links to libcuda and calls functions directly so we don't actually provide CUDA symbols ourselves
 CUresult CUDAAPI fake_cuGetProcAddress(const char *symbol, void **pfn, int cudaVersion, cuuint64_t flags, CUdriverProcAddressQueryResult *symbolStatus) {
     if constexpr (LOG_PROC_ADDR)
         std::cout << "HOOK: cuGetProcAddress: '" << symbol << "' v" << cudaVersion << std::endl;
@@ -367,7 +346,8 @@ CUresult CUDAAPI fake_cuGetProcAddress(const char *symbol, void **pfn, int cudaV
         *pfn = (void*) fake_cuGetProcAddress;
         return CUDA_SUCCESS;
     }
-    // As far as I can tell this is the only function where the version matters? But it does matter here, pytorch crashes without this
+    // We generally ignore the version argument and assume there's only one version of every CUDA function
+    // Which has so far worked with the exception of cuStreamSynchronize, which we need a separate copy of for version 2000
     if (strcmp(symbol, "cuStreamSynchronize") == 0 && cudaVersion == 2000) {
         *pfn = (void*) fake_cuStreamSynchronize_v2;
         return real_cuGetProcAddress(symbol, (void**)&real_cuStreamSynchronize_v2, cudaVersion, flags, symbolStatus);
@@ -379,12 +359,9 @@ CUresult CUDAAPI fake_cuGetProcAddress(const char *symbol, void **pfn, int cudaV
     return real_cuGetProcAddress(symbol, pfn, cudaVersion, flags, symbolStatus);
 }
 
-// Hooked dlsym
 void* dlsym(void *handle, const char *symbol) {
     if (!original_dlsym) {
-        // I believe this is only needed when running in Nsight, bc otherwise the constructor actually runs
         init();
-        // original_dlsym = (void* (*)(void*, const char*)) dlvsym(RTLD_NEXT, "dlsym", "GLIBC_2.2.5");
         if (!original_dlsym) {
             fprintf(stderr, "Error in `dlsym` hook: original function not found.\n");
             exit(1);
@@ -392,15 +369,15 @@ void* dlsym(void *handle, const char *symbol) {
     }
     if constexpr (LOG_PROC_ADDR)
         printf("dlsym called with: %s\n", symbol);
-    // Why is it cuGetProcAddress_v2 for dlsym and cuGetProcAddress for cuGetProcAddress? unclear. why call cuGetProcAddress to get cuGetProcAddress at all when you clearly already have it? again, who can tell.
-    // ig maybe the versions are different? in which case this stuff is all ignoring that and unifying the versions. but like, we only have one version of cuda installed; i'm sure it's fine...
+    // cuGetProcAddress in cuda.h is a macro going to the symbol cuGetProcAddress_v2, so that's the name used with dlsym
+    // but the official name is cuGetProcAddress, so that's the name used with cuGetProcAddress
     if (strcmp(symbol, "cuGetProcAddress_v2") == 0) {
         real_cuGetProcAddress = (CUresult CUDAAPI (*)(const char *symbol, void **pfn, int cudaVersion, cuuint64_t flags, CUdriverProcAddressQueryResult *symbolStatus)) original_dlsym(handle, symbol);
         return (void*) fake_cuGetProcAddress;
     }
     if (auto search = MAP.find(symbol); search != MAP.end()) {
-        // ?? rely on cuGetProcAddress being called first ??
-        // it did work in the pytorch setting ...
+        // this relies on cuGetProcAddress being called first to find the original symbol
+        // in practice this has worked so far since accessing CUDA symbols via dlsym seems to be much rarer than using cuGetProcAddress
         return (void*) search->second.first;
     }
     return original_dlsym(handle, symbol);
