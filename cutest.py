@@ -6,6 +6,8 @@ import sys
 import timm
 
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
+if device == "cpu":
+    print('Warning: CUDA not available in PyTorch, using CPU instead', file=sys.stderr)
 
 # trait Model { fn process(image: Image);  }
 class MaskDepthModel:
