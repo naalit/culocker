@@ -32,7 +32,7 @@
 ################################################################################
 
 # Location of the CUDA Toolkit
-CUDA_PATH ?= /opt/cuda
+CUDA_PATH ?= /usr/local/cuda
 
 ##############################
 # start deprecated interface #

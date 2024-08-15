@@ -171,8 +171,8 @@ bool always_lock = false;
 double next_sync_ms = 0;
 
 // Constructor function to initialize original function pointers
-__attribute__((constructor)) void init() {
-    original_dlsym = (void* (*)(void*, const char*)) dlvsym(RTLD_NEXT, "dlsym", "GLIBC_2.2.5");
+void init() {
+    original_dlsym = (void* (*)(void*, const char*)) dlvsym(RTLD_NEXT, "dlsym", "GLIBC_2.34");
 
     kernel_n_sync = KERNEL_N_SYNC;
     max_sync_ms = 0;

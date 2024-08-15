@@ -41,6 +41,7 @@ selected_tasks = check('tasks', 'short' if dataset == 'control' else 'all', ['sh
 fill_screen = check('fill-screen', False, ['true', 'false', 'half'])
 suffix = check('file-suffix', '_T3_L6')
 title = check('title', 'Task Response Times')
+layout = check('layout', 'vertical', ['vertical', 'horizontal'])
 
 for k, v in invalid.items():
     print(f"Warning: invalid argument '{k}'")
@@ -129,7 +130,10 @@ if plot == 'cdf':
         kwargs = { 'figsize': (19.20, 10.80), 'dpi': 100.0 }
     else:
         kwargs = { 'figsize': (12, 4*len(tasks)) }
-    fig, axs = plt.subplots(1, len(tasks), **kwargs)
+    if layout == 'vertical':
+        fig, axs = plt.subplots(len(tasks), 1, **kwargs)
+    else:
+        fig, axs = plt.subplots(1, len(tasks), **kwargs)
     if len(tasks) == 1:
         axs = [axs] # this is dumb
     fig.suptitle(title)
@@ -153,11 +157,10 @@ if plot == 'cdf':
     elif legend != 'none':
         axs[0].legend()
     units = { 'short': 'ms', 'long': 's' }
-    lim = { 'short': 10, 'long': 7 }
-    print(tasks, lim[tasks[0]])
+    lim = { 'short': df_short['time'].quantile(0.9995), 'long': df_long['time'].quantile(0.9995) }
     axs[0].set_xlabel(f'Time ({units[tasks[0]]})')
     axs[0].set_xlim(0, lim[tasks[0]]) # we don't super care about the very small number of outliers at the top
-    axs[0].set_xticks(list(range(lim[tasks[0]] + 1))) # and make sure there are ticks at each millisecond/second
+    axs[0].set_xticks(list(range(int(lim[tasks[0]]) + 1))) # and make sure there are ticks at each millisecond/second
     if len(axs) > 1:
         axs[i].set_xlabel(f'Time ({units[tasks[1]]})')
         axs[1].set_xlim(0, lim[tasks[1]]) # make sure they both start at 0
