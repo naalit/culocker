@@ -1,6 +1,6 @@
 # CUDA wrapper library for locking accesses to a shared GPU
 
-A `libcuda` wrapper that uses locking to manage access to a GPU from multiple parallel processes.
+A `libcuda` wrapper for Linux that uses locking to manage access to a GPU from multiple parallel processes.
 
 ## Building
 
@@ -24,3 +24,5 @@ The experiment can be run with `make run` (which just runs `nu run.nu` after bui
 - [Pueue](https://github.com/Nukesor/pueue) to manage parallel tasks (also can be installed by `cargo install pueue`)
 - The script assumes you have a Python virtual environment in `./venv` which contains recent versions of the `transformers`, `torch`, `torchvision`, `timm`, and `pillow` packages
   - The script just runs `./venv/bin/python`, if you have these packages installed system-wide feel free to `ln -s / venv` or `mkdir -p venv/bin && ln -s /bin/python venv/bin`
+- The script that generates the plots (`plot2.py`) also needs `pandas` and `matplotlib`.
+  It's got a bunch of command-line options, most importantly `--file-suffix` to choose which data files to use, `--plot [cdf|box|tables]` to choose how to plot the data, `--tasks [all|1|2]` to choose which task to plot data for, and `--data` which defaults to `all` but you can give it a comma-separated list of specific window sizes to plot.

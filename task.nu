@@ -1,3 +1,6 @@
+# This file (a nu wrapper for pueue) is from https://github.com/nushell/nu_scripts/blob/main/modules/background_task/task.nu with only minor modifications
+# I've included it here so the run script is more self-contained, since it's not included in the default nu distribution
+
 # Spawn a task to run in the background, even when the shell is closed.
 #
 # Note that a fresh Nushell interpreter is spawned to execute the
